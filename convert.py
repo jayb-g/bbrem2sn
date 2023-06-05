@@ -3,9 +3,14 @@
 #  You probably also have the note attachments backed up(using Ultimate Backup) to some ATT.../ folder that you need to upload to Standard Notes Files feature in order for attachments to reflect as it is
 import os
 import html2text
-import urllib3
-from bs4 import BeautifulSoup
+# import urllib3
+# from bs4 import BeautifulSoup
 import sys
+import datetime
+
+import json
+import time
+import uuid
 
 # Getting the file to process
 # file = open("RemBkp20230529165054_.html", "r")
@@ -13,6 +18,8 @@ import sys
 # # read the modified file
 # read_content = file.read()
 # # print(read_content)
+
+current_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S")
 
 if len(sys.argv) < 2:
   invarg = True
@@ -71,6 +78,97 @@ def getNoteText(content):
   noteCont = h.handle(content)
   return noteCont
 
+
+def writeNote(nName, nText):
+    path = './Standard Notes - Importables ' + current_datetime
+    if not os.path.exists(path):
+      os.makedirs(path)
+
+    j = 1
+    tmpnoteName = nName
+    while os.path.exists(os.path.join(path, nName + ".txt")):
+      nName = tmpnoteName
+      nName += "_" + str(j)
+      j += 1
+
+    f = open(os.path.join(path, nName + ".txt"), "w")
+    f.write(nText)
+    f.close()
+
+def getUnixTSfromDate(dStamp):
+  # Accepts dStamp in the format "Sat Sep 18 17:27:27 2021"
+  localDate = dStamp
+  localDate = localDate.partition(' ')[2] # remove Day from localDate
+  # print(localDate)
+
+  localUnixTS = time.mktime(datetime.datetime.strptime(localDate, "%b %d %H:%M:%S %Y").timetuple())
+  localUnixTS = int(localUnixTS) * 1000000 #SN stores it with microseconds so multiplying with 10^6 # would do it after adjusting localoffset
+
+  # print(localUnixTS)
+  # d_UnixTS = localUnixTS
+  return localUnixTS
+
+def getISOformat(UnixTS):
+  dt = datetime.datetime.utcfromtimestamp(UnixTS / 1000000)
+  iso_format = dt.isoformat() + '.000Z'
+  # print(iso_format)
+
+  # return iso_format
+  # d_iso = iso_format
+  return iso_format
+
+def createSNjson():
+  # requires variables inside the jsonFormat already set, so that it can be replaced
+  # accepts super as an argument, defaults to plain-text as noteType #planned but it seems too complicated to manually code the conversion from plaintext to super note. 
+  # Would be suitable if conversion code is available. Even then, you'd still have to open it select the attchment which would still change the file update time. So no point in trying to convert directly to super note
+  # better to just manually convert to super from the app itself as mentioned in README of this project
+
+  # Unless, you first get a list of fileUuid associated with each already uploaded file in SN beforehand(maybe from files backup), and then add those in super note format accordingly. That would work perfectly well
+  
+  jsonFormat = '''{{
+  "content_type": "Note",
+  "content": {{
+    "title": "{noteName}",
+    "text": "{noteText}",
+    "noteType": "plain-text",
+    "references": [],
+    "appData": {{
+      "org.standardnotes.sn": {{
+        "client_updated_at": "{updated_d_iso}"
+      }}
+    }}
+  }},
+  "created_at_timestamp": {created_ts},
+  "created_at": "{created_d_iso}",
+  "deleted": false,
+  "updated_at_timestamp": {updated_ts},
+  "updated_at": "{updated_d_iso}",
+  "uuid": "{uuid}"
+}}'''
+#leaving client_updated_at as it is around creation of this script to let SN know what it wants to know by this ( probably SN version associated with exported data, so that it can import accordingly )
+#apparently, client_updated_at is used as modification time shown in a client (and for sorting if set so in settings). So it has to be updated to same as 'updated_at' (value of {updated_d_uso})
+
+  noteVars = {}
+  noteVars['noteName'] = noteName
+  # noteVars['noteText'] = noteText
+  # escape newlines and " characters to store in json
+  noteVars['noteText'] = noteText.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\b', '\\b').replace('\f', '\\f').replace('\t', '\\t')
+  #weirdly enough, SN does not escape / characters
+  noteVars['created_ts'] = created_ts
+  noteVars['created_d_iso'] = created_d_iso
+  noteVars['updated_ts'] = updated_ts
+  noteVars['updated_d_iso'] = updated_d_iso
+  noteVars['uuid'] = uuid.uuid4()
+
+  SNjson = jsonFormat.format(**noteVars)
+
+  # print(noteVars)
+
+  return SNjson
+
+
+# SNjsonArr = []
+
 # process each note one by one
 for i in NotesArr:
   contArr = splitCont(i);
@@ -90,7 +188,7 @@ for i in NotesArr:
   noteName = noteName.replace("?", "-")
 
 
-  print("==========Processing: ", noteName)
+  print("\n\n==========Processing: ", noteName)
   noteText = getNoteText(contArr[3])
   # in some notes with numbered lists, such as 1. its replaced to 1\. by Ultimate Backup. Fixing that:
   noteText = noteText.replace("\\.",".")
@@ -107,10 +205,10 @@ for i in NotesArr:
   
   # print(noteName)
   print(noteText)
-  print(noteCtime)
-  print(noteMtime)
-  print(noteAttachments)
-  print(noteAttachmentTypes)
+  print("Created On: " + noteCtime)
+  print("Updated On: " + noteMtime)
+  print("Attachments: " + noteAttachments)
+  print("Attachments Types: " + noteAttachmentTypes)
 
   if len(noteAttachments):
     attachmentsArr = noteAttachments.split(';')
@@ -119,19 +217,59 @@ for i in NotesArr:
     for att in attachmentsArr:
       noteText += '\n\n@' + att
 
-  path = './Standard Notes - Importables'
-  if not os.path.exists(path):
-    os.makedirs(path)
+  # write all notes inside "Standard Notes - Importables" as txt files. Does not preserve timestamps.
+  # writeNote(noteName, noteText)
+  # commented this method as json method below supportes timestamps and is also much faster when importing
 
-  j = 1
-  tmpnoteName = noteName
-  while os.path.exists(os.path.join(path, noteName + ".txt")):
-    noteName = tmpnoteName
-    noteName += "_" + str(j)
-    j += 1
 
-  f = open(os.path.join(path, noteName + ".txt"), "w")
-  f.write(noteText)
-  f.close()
+  # Write it as json instead, which preserves timestamps
+  created_date = noteCtime
+  created_ts = getUnixTSfromDate(created_date)
+  created_d_iso = getISOformat(created_ts)
 
-  print("Total Notes: ",len(NotesArr))
+  updated_date = noteMtime
+  updated_ts = getUnixTSfromDate(updated_date)
+  updated_d_iso = getISOformat(updated_ts)
+
+  # print(createSNjson())
+  SNjson = createSNjson()
+  # print(SNjson)
+
+  try:
+    SNjsonArr
+  except NameError:
+    SNjsonArr = []
+
+  SNjsonArr.append(json.loads(SNjson)) #if not used json.loads, SNjson is added entirely as a string
+  # print(SNjsonArr)
+
+  # #PoC for just one note
+  # notesDict = {}
+  # notesDict['items'] = []
+  # # notesDict['items'][0] = SNjson
+  # notesDict['items'] = SNjsonArr
+
+#PoC for just one note
+notesDict = {}
+notesDict['items'] = []
+# notesDict['items'][0] = SNjson
+notesDict['items'] = SNjsonArr
+  
+# print(notesDict)
+# print(json.dumps(notesDict));
+SNjsonContent = json.dumps(notesDict, indent = 3)
+# print("WRITTEN TO IMPORTABLE JSON AS:")
+# print(SNjsonContent)
+
+SNjsonImportFile = "StandardNotes_json.txt"
+
+f = open(SNjsonImportFile, "w")
+f.write(SNjsonContent)
+f.close()
+
+print("\n================================================")
+print("Total Notes: ",len(NotesArr))
+print("================================================")
+print("SN Importable json is written to " + SNjsonImportFile)
+print("================================================\n")
+# writeNotes()
