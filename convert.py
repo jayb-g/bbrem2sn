@@ -117,7 +117,263 @@ def getISOformat(UnixTS):
   # d_iso = iso_format
   return iso_format
 
-def createSNjson():
+
+def getFilesUuids():
+  #requires
+  global hasFileList, filesDict, newFilesDict, hasSNimportfile
+  filesDict = {}
+  newFilesDict = [] #to be used later to Add note uuids to inidividual file entries(the inverse is already acheived), and then later entire fielsDict to be added to 'items'. This enables attachments icon in notes view
+  # newFilesArr = []
+
+  path = './Standard Notes Backup and Import File.txt'
+
+  if not os.path.exists(path):
+    hasSNimportfile = False
+    print('Notice: Could not find \'Standard Notes Backup and Import File.txt\' to get uuid for files uploaded to SN.\nAttachments will not be added and linked to notes automatically.\nRefer to README for more details.')
+    return False
+  else:
+    f = open('Standard Notes Backup and Import File.txt',"r")
+
+  # returns JSON object as 
+  # a dictionary
+  data = json.load(f)  
+  f.close
+  count = 1 
+
+  for i in data['items']:
+    # print(i)
+    if i['content_type'] == "SN|File":
+      fName = i['content']['name']
+      fUUID = i['uuid']
+      # print(fName +": "+ fUUID)
+      filesDict[fName] = fUUID
+
+      newFilesDict.append(i)  #idea dropped here as it seems too complex and SN seems to ignore or have no effect if you have 'SN|file' entries in importable json
+      # count += 1
+
+  if len(filesDict):
+    hasFileList = True
+  else:
+    hasFileList = False
+
+  # print(json.dumps(newFilesDict))
+
+  # print(json.dumps(filesDict, indent=3)) # print()
+  # print("Total of " + str(count) + " Files")
+  print("Total of",len(filesDict),"note attachments found.")
+  # exit()
+
+
+getFilesUuids()
+# debugging
+# exit()
+
+
+
+# Super json structure:
+# Entire data is inside 'root' key of the json
+# 'root' key contains 'children':[], "direction": "ltr", "format": "", "indent": 0, "type": "root", "version": 1
+# All data resides inside this children array
+# 'children' contains array of 3 jsons, each json again in the format of 'children':[], 'direction', 'format', 'indent', 'type', 'version' 
+
+# 1st json being used for storing noteText as converted by convertNoteText2SuperText inside children[] along with other default values "direction": "ltr", "format": "", "indent": 0, "type": "paragraph", "version": 1
+# 2nd json seems to be containing fixed values as "children": [], "direction": "ltr", "format": "", "indent": 0, "type": "paragraph", "version": 1 #maybe useful just to visually separate the text and attachments
+# 3rd json being used(only if there are attachments, usually placed at the end of other text data) for storing files details as converted by convertFileList2SuperFormat inside children[] along with other defailt values "direction": null, "format": "", "indent": 0, "type": "paragraph", "version": 1
+
+def convertFileList2SuperFormat(atts):
+  #requires atts array as input to be converted to array of json
+  #handles #3 as mentioned above in Super json structure
+  #and then returning the entire jsonArr for the text part #3
+
+  global refDict, noteText
+  
+  # print(atts)
+  # print(len(atts))
+  
+  if not atts:
+    print("No attachements")
+    # exit()
+    return False
+  else:
+    pass
+    # print("yes att")
+    # exit()
+
+  # getFilesUuids()
+
+  # if 'hasFileList' in globals() and len(atts):
+  #   pass
+  # else:
+  #   return False
+
+  nFDict = {}
+  nFDict['children'] = []
+  nFDict['direction'] = None #Actually has to be null in json, dumps handles that
+  nFDict['format'] = ""
+  nFDict['indent'] = 0
+  nFDict['type'] = "paragraph"
+  nFDict['version'] = 1
+
+  for att in atts:
+    # Add attachment to the note the old way if somehow its not present in filesDict, so that user would later know that that particular file should have been there
+    if not att in filesDict:
+      noteText += '\\n\\n@' + att
+      # noteText = noteText.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\b', '\\b').replace('\f', '\\f').replace('\t', '\\t')
+      continue
+
+    # pass
+
+    childFormat = '''{{
+              "format": "",
+              "type": "snfile",
+              "version": 1,
+              "fileUuid": "{attuuid}",
+              "zoomLevel": 50
+}}'''
+
+    attuuid = filesDict[att]
+
+    childJson = childFormat.format(attuuid = attuuid)
+
+    try:
+      filesJsonArr
+    except NameError:
+      filesJsonArr = []
+
+
+    #add json for paragraph to create gaps between attachments
+    paraFormat = '''{
+            "children": [],
+            "direction": null,
+            "format": "",
+            "indent": 0,
+            "type": "paragraph",
+            "version": 1
+}''' #single { and } since no replacements needed inside
+
+    filesJsonArr.append(json.loads(paraFormat))
+
+    filesJsonArr.append(json.loads(childJson))
+
+    filesJsonArr.append(json.loads(paraFormat))
+
+    #For adding later in the note as 'references' so that each note links to its attachements in SN
+    refDict = {}
+
+    refFormat='''{{
+               "reference_type": "NoteToFile",
+               "content_type": "SN|File",
+               "uuid": "{attuuid}"
+}}'''
+
+    refJson = refFormat.format(attuuid = attuuid)
+      
+    try:
+      refJsonArr
+    except NameError:
+      refJsonArr = []
+
+    refJsonArr.append(json.loads(refJson))
+
+    refDict = refJsonArr
+
+
+  if 'filesJsonArr' in locals():
+    nFDict['children'] = filesJsonArr
+    return nFDict
+    # return json.dumps(nFDict)
+  else:
+    return False
+
+
+def convertNoteText2SuperText(str):
+  #gets note text as argument, converts it to super format of SN, to be stored in {"root": {"children": [{"children": [] array as separate json entries for each line, separated by json entries for linebreaks themselves(if any)
+  #should return array of jsons
+  #handles #1 as mentioned above in Super json structure
+  #this would typically involve separating noteText by line, if found, separate each line into its own json entry, while adding a separate json entry for newline itself too
+  #and then returning the entire jsonArr for the text part #1
+
+  # print(str)
+  nTDict = {}
+  nTDict['children'] = []
+  nTDict['direction'] = "ltr"
+  nTDict['format'] = ""
+  nTDict['indent'] = 0
+  nTDict['type'] = "paragraph"
+  nTDict['version'] = 1
+
+  # debugging
+  # return 'superTextJson Goes here'
+
+  #json format for each line
+  lineFormat = '''{{
+              "detail": 0,
+              "format": 0,
+              "mode": "normal",
+              "style": "",
+              "text": "{nT}",
+              "type": "text",
+              "version": 1
+}}'''
+
+  lineBreakFormat = '''{{
+              "type": "linebreak",
+              "version": 1
+}}'''
+  
+  #testing adding entire text with newlines in just one entry
+  lineJson = lineFormat.format(nT = str)
+  # print(lineJson)
+  # exit()
+
+  try:
+      linesJsonArr
+  except NameError:
+      linesJsonArr = []
+
+  linesJsonArr.append(json.loads(lineJson))
+
+  nTDict['children'] = linesJsonArr
+  return nTDict
+  # return json.dumps(nTDict)
+
+
+
+
+def createSuperNoteJson():
+  #creates json to be stored in escaped form as a value for 'text' key as '{noteText}'
+  #ie combine all 3 parts mentioned above
+  #and return full json to be added to SNjsonArr
+  global noteText
+
+  nDict = {}
+  nDict['root'] = {}
+  nDict['root']['children'] = []
+  nDict['root']['direction'] = "ltr"
+  nDict['root']['format'] = ""
+  nDict['root']['indent'] = 0
+  nDict['root']['type'] = "root"
+  nDict['root']['version'] = 1
+
+  # first thing it has to call is convertFileList2SuperFormat since that may modify noteText in case of atts, hence convertNoteText2SuperText can be called only after
+  # if len(noteAttachments): #otherwise it adds previous note's values of attachementsArr to next note if has no attachments. handled by resetting value of attachmentsArr if there are no attachments for current note
+  fDict = convertFileList2SuperFormat(attachmentsArr)
+
+  superTextDict = convertNoteText2SuperText(noteText)
+
+  #add superTextDict to nDict['root']['children']
+  nDict['root']['children'].append(superTextDict)
+  #add fDict to nDict['root']['children']
+  #Although this adds files to notes directly, it doesn't 'Link' the files to the notes automatically. Hence no attachment icon on the note even if attachments are present
+  nDict['root']['children'].append(fDict)
+
+  # return nDict
+  return json.dumps(nDict)
+
+
+
+
+def createSNjson(notetype='plain-text'):
   # requires variables inside the jsonFormat already set, so that it can be replaced
   # accepts super as an argument, defaults to plain-text as noteType #planned but it seems too complicated to manually code the conversion from plaintext to super note. 
   # Would be suitable if conversion code is available. Even then, you'd still have to open it select the attchment which would still change the file update time. So no point in trying to convert directly to super note
@@ -125,18 +381,21 @@ def createSNjson():
 
   # Unless, you first get a list of fileUuid associated with each already uploaded file in SN beforehand(maybe from files backup), and then add those in super note format accordingly. That would work perfectly well
   
+  global noteText, refDict
+
   jsonFormat = '''{{
   "content_type": "Note",
   "content": {{
     "title": "{noteName}",
     "text": "{noteText}",
-    "noteType": "plain-text",
+    "noteType": "{noteType}",
     "references": [],
     "appData": {{
       "org.standardnotes.sn": {{
         "client_updated_at": "{updated_d_iso}"
       }}
-    }}
+    }},
+    "preview_plain": "{preview_plain}"
   }},
   "created_at_timestamp": {created_ts},
   "created_at": "{created_d_iso}",
@@ -148,12 +407,48 @@ def createSNjson():
 #leaving client_updated_at as it is around creation of this script to let SN know what it wants to know by this ( probably SN version associated with exported data, so that it can import accordingly )
 #apparently, client_updated_at is used as modification time shown in a client (and for sorting if set so in settings). So it has to be updated to same as 'updated_at' (value of {updated_d_uso})
 
+  count = 0
+  preview_plain = ""
+  for line in noteText.splitlines():
+    count += 1
+    preview_plain += line
+    if count == 1:
+      preview_plain += "\n"
+    if count == 2:
+      break
+
+  #truncate it to 35 chars
+  preview_plain = (preview_plain[:35] + '..') if len(preview_plain) > 35 else preview_plain
+  preview_plain = preview_plain.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\b', '\\b').replace('\f', '\\f').replace('\t', '\\t')
+
+  noteText = noteText.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\b', '\\b').replace('\f', '\\f').replace('\t', '\\t')
   noteVars = {}
   noteVars['noteName'] = noteName
+
+  if notetype.lower() == 'super':
+    noteType = 'super'
+    noteVars['noteType'] = noteType
+    noteText = createSuperNoteJson()
+    # print(noteText)
+    # debugging
+  else:
+    noteType = 'plain-text'
+    noteVars['noteType'] = 'plain-text'
+    #or
+    #noteVars['noteType'] = notetype #as provided via argument
+
   # noteVars['noteText'] = noteText
   # escape newlines and " characters to store in json
-  noteVars['noteText'] = noteText.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\b', '\\b').replace('\f', '\\f').replace('\t', '\\t')
+
+  if noteType == 'super':
+    noteText = noteText.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\b', '\\b').replace('\f', '\\f').replace('\t', '\\t')
+    # noteText = json.dumps(noteText) #should work but quotes entire output again since as once is hardcoded in jsonFormat
+  # print(noteText)
+  noteVars['noteText'] = noteText
   #weirdly enough, SN does not escape / characters
+
+  noteVars['preview_plain'] = preview_plain
+
   noteVars['created_ts'] = created_ts
   noteVars['created_d_iso'] = created_d_iso
   noteVars['updated_ts'] = updated_ts
@@ -207,15 +502,22 @@ for i in NotesArr:
   print(noteText)
   print("Created On: " + noteCtime)
   print("Updated On: " + noteMtime)
-  print("Attachments: " + noteAttachments)
-  print("Attachments Types: " + noteAttachmentTypes)
+  # print("Attachments: " + noteAttachments)
+  # print("Attachments Types: " + noteAttachmentTypes)
 
   if len(noteAttachments):
     attachmentsArr = noteAttachments.split(';')
     attachmentsArr = [s.split('/')[1] for s in attachmentsArr]
+    print("Attachments: " + noteAttachments)
+    print("Attachments Types: " + noteAttachmentTypes)
+  
+    # Moving this to super format
+    # if len(attachmentsArr) and not hasFileList:
+    #   for att in attachmentsArr:
+    #     noteText += '\n\n@' + att
+  else:
+    attachmentsArr = []
 
-    for att in attachmentsArr:
-      noteText += '\n\n@' + att
 
   # write all notes inside "Standard Notes - Importables" as txt files. Does not preserve timestamps.
   # writeNote(noteName, noteText)
@@ -231,8 +533,30 @@ for i in NotesArr:
   updated_ts = getUnixTSfromDate(updated_date)
   updated_d_iso = getISOformat(updated_ts)
 
-  # print(createSNjson())
-  SNjson = createSNjson()
+
+  # # print(createSNjson())
+  # if len(noteAttachments): # and hasFileList:
+  #   #use 'super' only if there are attachments
+  #   # print(noteText)
+  #   SNjson = createSNjson('super')
+  #   # print(SNjson)
+  #   # print(json.dumps(SNjson))
+  #   # exit()
+  # else:
+  #   # continue #testing only super types for now
+  #   SNjson = createSNjson()
+
+  #or can be made 'super' as default if provided by commandline option - 'super' requires presense of a valid 'Standard Notes Backup and Import File.txt' file, otherwise give a warning and fallback to plain-text type
+  #or just can be made default
+  SNjson = createSNjson('super')
+
+  if 'refDict' in globals():
+    # Add refDict created by call to convertFileList2SuperFormat
+    SNjsonD = json.loads(SNjson)
+    SNjsonD['content']['references'] = refDict
+    refDict = [] #so that it doesn't persist through next loop
+    SNjson = json.dumps(SNjsonD)
+
   # print(SNjson)
 
   try:
@@ -241,6 +565,7 @@ for i in NotesArr:
     SNjsonArr = []
 
   SNjsonArr.append(json.loads(SNjson)) #if not used json.loads, SNjson is added entirely as a string
+
   # print(SNjsonArr)
 
   # #PoC for just one note
@@ -248,6 +573,10 @@ for i in NotesArr:
   # notesDict['items'] = []
   # # notesDict['items'][0] = SNjson
   # notesDict['items'] = SNjsonArr
+
+  #debuging
+  # if len(noteAttachments):
+  #   exit()
 
 #PoC for just one note
 notesDict = {}
@@ -268,6 +597,9 @@ f.write(SNjsonContent)
 f.close()
 
 print("\n================================================")
+if not hasSNimportfile:
+  print('Notice: Could not find \'Standard Notes Backup and Import File.txt\' to get uuid for files uploaded to SN.\nAttachments will not be added and linked to notes automatically.\nRefer to README for more details.')
+  print("================================================")
 print("Total Notes: ",len(NotesArr))
 print("================================================")
 print("SN Importable json is written to " + SNjsonImportFile)
