@@ -132,6 +132,7 @@ def getFilesUuids():
     print('Notice: Could not find \'Standard Notes Backup and Import File.txt\' to get uuid for files uploaded to SN.\nAttachments will not be added and linked to notes automatically.\nRefer to README for more details.')
     return False
   else:
+    hasSNimportfile = True
     f = open('Standard Notes Backup and Import File.txt',"r")
 
   # returns JSON object as 
