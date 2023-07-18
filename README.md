@@ -3,6 +3,7 @@ A simple python program to convert BlackBerry10 Remember Notes backup(backed-up 
 
 # Overview & Prep
    Script works completely offline and no data leaves your device whatsoever.
+   ### Steps before running the script:
    1. It's assumed at this point that you already have the backup(using Ultimate Backup) of your Remember notes; if not, do it.
    2. Go to the Runisoft Backup folder location(usually under [Device or Media Card]/documents/Runisoft) > "Remember_Bkp_XXXXXXXXXX" that contains date wise folders for notes backups taken at different times. Choose any one(preferably latest) to import from, and copy that folder to a system. We'll call this the *runisoft backup folder*.
    3. Clone this repo by running `git clone https://github.com/jayb-g/bbrem2sn` in a directory of your choice.
@@ -17,7 +18,7 @@ A simple python program to convert BlackBerry10 Remember Notes backup(backed-up 
    - Run program as `python3 convert.py filename.rembkp`(asssuming you have python3 installed).
    - All the notes will be exported to a txt file inside current working directory as "StandardNotes_json.txt" by default.
    - Go to Standard Notes Preferences > Backup > Import backup, then select StandardNotes_json.txt(created by convert.py), SN will start importing all notes. The import process also works well on mobile(tested on Android).
-   - Read this only if you have skipped step 5,: This program will add the attachments(if any) as @filename.ext list at the end of each corresponding note content in the importable notes, because either it could not find *Standard Notes Backup and Import File.txt*, or it could not find attachment name in it.
+   - Read this only if you had skipped step 5 earlier: This program would have added the attachments(if any) as @filename.ext list at the end of each corresponding note content in the importable notes, because either it could not find *Standard Notes Backup and Import File.txt*, or it could not find attachment name in it.
       + Upload all files inside 'ATTXXXXXXX' from runisoft backup to SN if not already done. Be patient and let attachments upload finish. This works best in the Desktop App of SN in my experience.
       + For attachments to show up in SN once all files are imported, open SN and open any of the imported notes with attachements then click on @filename inside the note(preferably, place the cursor at the end of '@foo.bar' to avoid similar filename suggestions/adding wrong file by mistake/leaving residue text after selection), and SN will show you exactly that file to select and attach from: click on it and you're done.
       + All your attachments can be added back to their respective notes this way. I know this is not ideal but for now this seems to be best workable solution.
